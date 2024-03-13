@@ -27,11 +27,18 @@ void write_ppm(
     }
 }
 
+struct Material {
+    Vec3f diffuse_color;
+    Material() : diffuse_color() {}
+    Material(const Vec3f& color) : diffuse_color{color} {}
+};
+
 struct Sphere {
     Vec3f center;
     float radius;
+    Material material;
 
-    Sphere(const Vec3f& c, const float r) : center{c}, radius{r} {}
+    Sphere(const Vec3f& c, const float r, const Material& mat) : center{c}, radius{r}, material(mat) {}
 
     bool ray_intersect(const Vec3f& o, const Vec3f& dir, float& t0) {
         bool inside_sphere = (o-center).norm() < radius;
@@ -69,17 +76,31 @@ void render() {
     float fov = M_PI_2;
     float fov_2 = M_PI_4;
     //scene
-    Sphere s({0, 0, -15.5f}, 1.5f);
+    Material ivory(Vec3f(0.4, 0.4, 0.3));
+    Material red_rubber(Vec3f(0.3, 0.1, 0.1));
+    std::vector<Sphere> spheres = {
+        Sphere(Vec3f(-3,    0,   -16), 2,      ivory),
+        Sphere(Vec3f(-1.0, -1.5, -12), 2, red_rubber),
+        Sphere(Vec3f( 1.5, -0.5, -18), 3, red_rubber),
+        Sphere(Vec3f( 7,    5,   -18), 4,      ivory)
+    };
 
     float tan_fov_2 = tanf(fov_2);
     for (size_t y = 0; y < height; y++) {
         for (size_t x = 0; x < width; x++) {
             float wx = (x - width/2.f)*tan_fov_2/(width/2.0f);
             float wy = (y - height/2.f)*tan_fov_2*aspect/(height/2.0f);
-            float t0;
-            bool hit = s.ray_intersect({0.0f, 0.0f, 0.0f}, {wx, wy, -1.0f}, t0);
-            if (hit) {
-                framebuffer[x+y*width] = Vec3f(0.4, 0.4, 0.3);
+
+            float nearest_factor = std::numeric_limits<float>::max();
+            Material *nearest_mat = nullptr;
+            for (Sphere& s : spheres) {
+                float t0;
+                bool hit = s.ray_intersect({0.0f, 0.0f, 0.0f}, {wx, wy, -1.0f}, t0);
+                if (hit && t0 < nearest_factor) {
+                    nearest_factor = t0;
+                    nearest_mat = &s.material;
+                    framebuffer[x+(height-1-y)*width] = nearest_mat->diffuse_color;
+                }
             }
         }
     }
