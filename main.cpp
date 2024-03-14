@@ -29,8 +29,10 @@ void write_ppm(
 
 struct Material {
     Vec3f diffuse_color;
+    Vec2f albedo; //diffuse_coff, spec_coff
+    float spec_expo;
     Material() : diffuse_color() {}
-    Material(const Vec3f& color) : diffuse_color{color} {}
+    Material(const Vec2f &a, const Vec3f& color, float spec) : diffuse_color{color}, albedo{a}, spec_expo{spec} {}
 };
 
 struct Light {
@@ -95,11 +97,19 @@ Vec3f shade(
     
     Vec3f p = hit.hitPoint();
     Vec3f n = (p - sphere.center).normalize();
-    float intensity = 0.0f;
+    float diffuse_intensity = 0.0f;
+    float spec_intensity = 0.0f;
     for (auto& light : lights) {
-        intensity += light.intensity * std::max(0.0f, n * (light.pos - p).normalize());
+        Vec3f l = (light.pos - p).normalize();
+        Vec3f r = (n*2*(n*l) - l).normalize();
+        Vec3f v = (hit.o - p).normalize();
+        diffuse_intensity += light.intensity * std::max(0.0f, n * l);
+        spec_intensity += light.intensity * powf(std::max(0.0f, v*r), sphere.material.spec_expo);
     }
-    return sphere.material.diffuse_color * intensity;
+
+    Vec3f diffuse = sphere.material.diffuse_color * diffuse_intensity * sphere.material.albedo.x;
+    Vec3f specular = Vec3f(1.f, 1.f, 1.f) * spec_intensity * sphere.material.albedo.y;
+    return diffuse + specular;
 }
 
 void render() {
@@ -113,11 +123,13 @@ void render() {
     float fov_2 = M_PI_4;
     //scene
     std::vector<Light> lights = {
-        Light(Vec3f(-20, 20,  20), 1.5)
+        Light(Vec3f(-20, 20,  20), 1.5),
+        Light(Vec3f( 30, 50, -25), 1.8),
+        Light(Vec3f( 30, 20,  30), 1.7)
     };
 
-    Material ivory(Vec3f(0.4, 0.4, 0.3));
-    Material red_rubber(Vec3f(0.3, 0.1, 0.1));
+    Material ivory({0.6,  0.3}, Vec3f(0.4, 0.4, 0.3), 50.0f);
+    Material red_rubber({0.9,  0.1}, Vec3f(0.3, 0.1, 0.1), 10.0f);
     std::vector<Sphere> spheres = {
         Sphere(Vec3f(-3,    0,   -16), 2,      ivory),
         Sphere(Vec3f(-1.0, -1.5, -12), 2, red_rubber),
