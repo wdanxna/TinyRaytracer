@@ -9,6 +9,8 @@
 // #define STB_IMAGE_WRITE_IMPLEMENTATION
 // #include "stb_image_write.h"
 
+const Vec3f background = Vec3f(0.2, 0.7, 0.8);
+
 void write_ppm(
     std::vector<Vec3f> &framebuffer, 
     const int width, const int height, 
@@ -46,7 +48,7 @@ struct Hit {
     int isHit;
     int numberOfHits;
     float t0; //p + t0*dir = the first hit point
-    Hit(const Vec3f& orig, const Vec3f& dir) : o{orig}, dir{dir} {}
+    Hit(const Vec3f& orig, const Vec3f& dir) : o{orig}, dir{dir}, isHit{0}, numberOfHits{0}, t0{0} {}
     Vec3f hitPoint() const {
         return o + dir.normalize() * t0;
     }
@@ -90,43 +92,67 @@ struct Sphere {
     }
 };
 
-Vec3f shade(
+bool scene_intersect(
+    const Vec3f& o, 
+    const Vec3f& dir, 
+    const std::vector<Sphere>& spheres, 
+    Hit& hit, Sphere const ** hitter) {
+    
+    float nearest_factor = std::numeric_limits<float>::max();
+    for (auto& ss : spheres) {
+        Hit h(o, dir);
+        bool ishit = ss.ray_intersect(o, dir, h);
+        if (ishit && h.t0 < nearest_factor) {
+            nearest_factor = h.t0;
+            *hitter = &ss;
+            hit = h;
+        }
+    }
+    return hit.isHit == 1;
+}
+
+Vec3f ray_trace(
     const std::vector<Light>& lights,
     const std::vector<Sphere>& spheres,
-    const Sphere& sphere,
-    const Hit& hit) {
-    
-    Vec3f p = hit.hitPoint();
-    Vec3f n = (p - sphere.center).normalize();
-    float diffuse_intensity = 0.0f;
-    float spec_intensity = 0.0f;
-    for (auto& light : lights) {
-        Vec3f l = (light.pos - p).normalize();
-        Vec3f r = (n*2*(n*l) - l).normalize();
-        Vec3f v = (hit.o - p).normalize();
-    
-        //shadow
-        //shoot a ray from intersection poitn p to the light source
-        //see if there is any thing between the point and the light source.
-        bool blocked = false;
-        for (auto& s : spheres) {
-            if (&s == &sphere) continue;
-            Vec3f dir = (light.pos - p).normalize();
-            Hit hit(p, dir);
-            if (s.ray_intersect(p, dir, hit)) {
-                blocked = true;
-                break;
-            }
-        }
-        // shadow /= (float)lights.size();
-        if (blocked) continue;
-        diffuse_intensity += light.intensity * std::max(0.0f, n * l);
-        spec_intensity += light.intensity * powf(std::max(0.0f, v*r), sphere.material.spec_expo);
-    }
+    const Vec3f& origin,
+    const Vec3f& dir,
+    int depth = 1) {
 
-    Vec3f diffuse = sphere.material.diffuse_color * diffuse_intensity * sphere.material.albedo.x;
-    Vec3f specular = Vec3f(1.f, 1.f, 1.f) * spec_intensity * sphere.material.albedo.y;
-    return diffuse + specular;
+    
+    Hit hit(origin, dir);
+    Sphere const * s = nullptr;
+    bool ishit = scene_intersect(origin, dir.normalize(), spheres, hit, &s);
+    if (ishit) {
+        assert(s != nullptr);
+        
+        Vec3f p = hit.hitPoint();
+        Vec3f n = (p - s->center).normalize();
+        float diffuse_intensity = 0.0f;
+        float spec_intensity = 0.0f;
+        for (auto& light : lights) {
+            Vec3f l = (light.pos - p).normalize();
+            Vec3f r = (n*2*(n*l) - l).normalize();
+            Vec3f v = (hit.o - p).normalize();
+        
+            //shadow
+            //shoot a ray from intersection poitn p to the light source
+            //see if there is any thing between the point and the light source.
+            Hit h(p, (light.pos - p).normalize());
+            Sphere const * hitter = nullptr;
+            if (scene_intersect(h.o, h.dir, spheres, h, &hitter)) {
+                continue;
+            }
+
+            diffuse_intensity += light.intensity * std::max(0.0f, n * l);
+            spec_intensity += light.intensity * powf(std::max(0.0f, v*r), s->material.spec_expo);
+        }
+
+        Vec3f diffuse = s->material.diffuse_color * diffuse_intensity * s->material.albedo.x;
+        Vec3f specular = Vec3f(1.f, 1.f, 1.f) * spec_intensity * s->material.albedo.y;
+        return diffuse + specular;
+    }
+    return background;
+    
 }
 
 void render() {
@@ -160,15 +186,10 @@ void render() {
             float wx = (x - width/2.f)*tan_fov_2/(width/2.0f);
             float wy = (y - height/2.f)*tan_fov_2*aspect/(height/2.0f);
 
-            float nearest_factor = std::numeric_limits<float>::max();
-            for (Sphere& s : spheres) {
-                Hit hit({0.f,0.f,0.f}, {wx, wy, -1.0f});
-                bool ishit = s.ray_intersect({0.0f, 0.0f, 0.0f}, {wx, wy, -1.0f}, hit);
-                if (ishit && hit.t0 < nearest_factor) {
-                    nearest_factor = hit.t0;
-                    framebuffer[x+(height-1-y)*width] = shade(lights, spheres, s, hit);
-                }
-            }
+            framebuffer[x+(height-1-y)*width] = ray_trace(
+                    lights, 
+                    spheres, 
+                    {0.0f, 0.0f, 0.0f}, {wx, wy, -1.0f});
         }
     }
     write_ppm(framebuffer, width, height, "./out.ppm");
