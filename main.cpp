@@ -4,10 +4,10 @@
 #include <fstream>
 #include <vector>
 #include "geometry.h"
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "stb_image_write.h"
+// #define STB_IMAGE_IMPLEMENTATION
+// #include "stb_image.h"
+// #define STB_IMAGE_WRITE_IMPLEMENTATION
+// #include "stb_image_write.h"
 
 void write_ppm(
     std::vector<Vec3f> &framebuffer, 
@@ -33,6 +33,23 @@ struct Material {
     Material(const Vec3f& color) : diffuse_color{color} {}
 };
 
+struct Light {
+    Vec3f pos;
+    float intensity;
+    Light(const Vec3f& p, const float i) : pos{p}, intensity{i} {}
+};
+
+struct Hit {
+    Vec3f o, dir;
+    int isHit;
+    int numberOfHits;
+    float t0; //p + t0*dir = the first hit point
+    Hit(const Vec3f& orig, const Vec3f& dir) : o{orig}, dir{dir} {}
+    Vec3f hitPoint() const {
+        return o + dir.normalize() * t0;
+    }
+};
+
 struct Sphere {
     Vec3f center;
     float radius;
@@ -40,7 +57,7 @@ struct Sphere {
 
     Sphere(const Vec3f& c, const float r, const Material& mat) : center{c}, radius{r}, material(mat) {}
 
-    bool ray_intersect(const Vec3f& o, const Vec3f& dir, float& t0) {
+    bool ray_intersect(const Vec3f& o, const Vec3f& dir, Hit& hit) {
         bool inside_sphere = (o-center).norm() < radius;
         if (inside_sphere) return false;
         auto oc = center - o;
@@ -53,18 +70,37 @@ struct Sphere {
         auto b = sqrt(b_2);
         if (b < radius) {
             //2 intersections
-            t0 = a - sqrt(radius*radius-b_2);
+            hit.t0 = a - sqrt(radius*radius-b_2);
+            hit.isHit = 1;
+            hit.numberOfHits = 2;
             return true;
         }
         else if (b - radius < 1e-4) {
             //1 intersection
-            t0 = a;
+            hit.t0 = a;
+            hit.isHit = 1;
+            hit.numberOfHits = 1;
             return true;
         }
         //no intersection
+        hit.isHit = 0;
         return false;
     }
 };
+
+Vec3f shade(
+    const std::vector<Light>& lights, 
+    const Sphere& sphere,
+    const Hit& hit) {
+    
+    Vec3f p = hit.hitPoint();
+    Vec3f n = (p - sphere.center).normalize();
+    float intensity = 0.0f;
+    for (auto& light : lights) {
+        intensity += light.intensity * std::max(0.0f, n * (light.pos - p).normalize());
+    }
+    return sphere.material.diffuse_color * intensity;
+}
 
 void render() {
     const int width = 1024;
@@ -76,6 +112,10 @@ void render() {
     float fov = M_PI_2;
     float fov_2 = M_PI_4;
     //scene
+    std::vector<Light> lights = {
+        Light(Vec3f(-20, 20,  20), 1.5)
+    };
+
     Material ivory(Vec3f(0.4, 0.4, 0.3));
     Material red_rubber(Vec3f(0.3, 0.1, 0.1));
     std::vector<Sphere> spheres = {
@@ -92,14 +132,12 @@ void render() {
             float wy = (y - height/2.f)*tan_fov_2*aspect/(height/2.0f);
 
             float nearest_factor = std::numeric_limits<float>::max();
-            Material *nearest_mat = nullptr;
             for (Sphere& s : spheres) {
-                float t0;
-                bool hit = s.ray_intersect({0.0f, 0.0f, 0.0f}, {wx, wy, -1.0f}, t0);
-                if (hit && t0 < nearest_factor) {
-                    nearest_factor = t0;
-                    nearest_mat = &s.material;
-                    framebuffer[x+(height-1-y)*width] = nearest_mat->diffuse_color;
+                Hit hit({0.f,0.f,0.f}, {wx, wy, -1.0f});
+                bool ishit = s.ray_intersect({0.0f, 0.0f, 0.0f}, {wx, wy, -1.0f}, hit);
+                if (ishit && hit.t0 < nearest_factor) {
+                    nearest_factor = hit.t0;
+                    framebuffer[x+(height-1-y)*width] = shade(lights, s, hit);
                 }
             }
         }

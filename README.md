@@ -1,6 +1,9 @@
 # TinyRaytracer
 My raytracer practice
 ---
+2024.3.14
+1) refactor a little bit and implement basic light
+
 2024.3.13
 1) Implement sphere class with ray intersect funciton;
 2) Transform screen coordiates to world coordinates in order to shoot rays;
