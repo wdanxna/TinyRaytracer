@@ -59,7 +59,7 @@ struct Sphere {
 
     Sphere(const Vec3f& c, const float r, const Material& mat) : center{c}, radius{r}, material(mat) {}
 
-    bool ray_intersect(const Vec3f& o, const Vec3f& dir, Hit& hit) {
+    bool ray_intersect(const Vec3f& o, const Vec3f& dir, Hit& hit) const {
         bool inside_sphere = (o-center).norm() < radius;
         if (inside_sphere) return false;
         auto oc = center - o;
@@ -91,7 +91,8 @@ struct Sphere {
 };
 
 Vec3f shade(
-    const std::vector<Light>& lights, 
+    const std::vector<Light>& lights,
+    const std::vector<Sphere>& spheres,
     const Sphere& sphere,
     const Hit& hit) {
     
@@ -103,6 +104,22 @@ Vec3f shade(
         Vec3f l = (light.pos - p).normalize();
         Vec3f r = (n*2*(n*l) - l).normalize();
         Vec3f v = (hit.o - p).normalize();
+    
+        //shadow
+        //shoot a ray from intersection poitn p to the light source
+        //see if there is any thing between the point and the light source.
+        bool blocked = false;
+        for (auto& s : spheres) {
+            if (&s == &sphere) continue;
+            Vec3f dir = (light.pos - p).normalize();
+            Hit hit(p, dir);
+            if (s.ray_intersect(p, dir, hit)) {
+                blocked = true;
+                break;
+            }
+        }
+        // shadow /= (float)lights.size();
+        if (blocked) continue;
         diffuse_intensity += light.intensity * std::max(0.0f, n * l);
         spec_intensity += light.intensity * powf(std::max(0.0f, v*r), sphere.material.spec_expo);
     }
@@ -149,7 +166,7 @@ void render() {
                 bool ishit = s.ray_intersect({0.0f, 0.0f, 0.0f}, {wx, wy, -1.0f}, hit);
                 if (ishit && hit.t0 < nearest_factor) {
                     nearest_factor = hit.t0;
-                    framebuffer[x+(height-1-y)*width] = shade(lights, s, hit);
+                    framebuffer[x+(height-1-y)*width] = shade(lights, spheres, s, hit);
                 }
             }
         }
