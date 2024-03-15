@@ -32,10 +32,12 @@ void write_ppm(
 
 struct Material {
     Vec3f diffuse_color;
-    Vec3f albedo; //diffuse_coff, spec_coff, reflect_coff
+    Vec4f albedo; //diffuse_coff, spec_coff, reflect_coff
     float spec_expo;
+    float ridx;//refrection factor
     Material() : diffuse_color() {}
-    Material(const Vec3f &a, const Vec3f& color, float spec) : diffuse_color{color}, albedo{a}, spec_expo{spec} {}
+    Material(const Vec4f &a, const Vec3f& color, float spec, float ridx = 1.0f) 
+    : diffuse_color{color}, albedo{a}, spec_expo{spec}, ridx{ridx} {}
 };
 
 struct Light {
@@ -64,7 +66,6 @@ struct Sphere {
 
     bool ray_intersect(const Vec3f& o, const Vec3f& dir, Hit& hit) const {
         bool inside_sphere = (o-center).norm() < radius;
-        if (inside_sphere) return false;
         auto oc = center - o;
         float k = oc*dir.normalize();
         bool ahead_sphere = k < 0;
@@ -74,10 +75,11 @@ struct Sphere {
         auto b_2 = c*c-a*a;
         auto b = sqrt(b_2);
         if (b < radius) {
-            //2 intersections
-            hit.t0 = a - sqrt(radius*radius-b_2);
+            //maybe 2 intersections
+            auto d = sqrt(radius*radius-b_2);
+            hit.t0 = inside_sphere ? a + d : a - d;
             hit.isHit = 1;
-            hit.numberOfHits = 2;
+            hit.numberOfHits = inside_sphere ? 1 : 2;
             return true;
         }
         else if (b - radius < 1e-4) {
@@ -114,6 +116,12 @@ bool scene_intersect(
 
 Vec3f reflect(const Vec3f& l, const Vec3f& n) {
     return n * 2.0f * (l * n) - l;
+}
+
+Vec3f refrect(const Vec3f& l, const Vec3f& n, float n1, float n2) {
+    auto r = n1 / n2;
+    auto c = (-n*l);
+    return (l*r+n*(r*c-sqrt(1.0f - r*r*(1.0f - c*c)))).normalize();
 }
 
 Vec3f ray_trace(
@@ -156,7 +164,18 @@ Vec3f ray_trace(
         Vec3f diffuse = s->material.diffuse_color * diffuse_intensity * s->material.albedo.x;
         Vec3f specular = Vec3f(1.f, 1.f, 1.f) * spec_intensity * s->material.albedo.y;
         Vec3f reflection = ray_trace(lights, spheres, p, reflect((origin-p), n).normalize(), depth+1) * s->material.albedo.z;
-        return diffuse + specular + reflection;
+        //refraction
+        Vec3f refrection = {0.0f, 0.0f, 0.0f};
+        if (s->material.albedo[3] > 0.f) {
+            auto r1 = refrect(dir.normalize(), n, 1.0f, s->material.ridx); //the refrected ray direction inside the sphere
+            Hit p1hit(p+r1*0.001, r1);
+            s->ray_intersect(p+r1*0.01, r1, p1hit);//the internal hit point
+            auto p1 = p1hit.hitPoint();
+            auto r2 = refrect((p1-p).normalize(), (s->center-p1).normalize(), s->material.ridx, 1.0f);
+            refrection = ray_trace(lights, spheres, p1+r2*0.001f, r2, depth+1) * s->material.albedo[3];
+        }
+
+        return diffuse + specular + reflection + refrection;
     }
     return background;
     
@@ -178,13 +197,14 @@ void render() {
         Light(Vec3f( 30, 20,  30), 1.7)
     };
 
-    Material ivory({0.6,  0.3, 0.1}, Vec3f(0.4, 0.4, 0.3), 50.0f);
-    Material red_rubber({0.9,  0.1, 0.0}, Vec3f(0.3, 0.1, 0.1), 10.0f);
-    Material mirror(Vec3f(0.0, 10.0, 0.8), Vec3f(1.0, 1.0, 1.0), 1425.);
+    Material ivory({0.6,  0.3, 0.1, 0.0f}, Vec3f(0.4, 0.4, 0.3), 50.0f);
+    Material red_rubber({0.9,  0.1, 0.0, 0.0f}, Vec3f(0.3, 0.1, 0.1), 10.0f);
+    Material mirror({0.0, 10.0, 0.8, 0.0f}, Vec3f(1.0, 1.0, 1.0), 1425.);
+    Material glass({0.0,  0.5, 0.1, 0.8}, Vec3f(0.6, 0.7, 0.8),  125., 1.5);
 
     std::vector<Sphere> spheres = {
         Sphere(Vec3f(-3,    0,   -16), 2,      ivory),
-        Sphere(Vec3f(-1.0, -1.5, -12), 2,      mirror),
+        Sphere(Vec3f(-1.0, -1.5, -12), 2,      glass),
         Sphere(Vec3f( 1.5, -0.5, -18), 3,      red_rubber),
         Sphere(Vec3f( 7,    5,   -18), 4,      mirror)
     };
