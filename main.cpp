@@ -10,6 +10,7 @@
 // #include "stb_image_write.h"
 
 const Vec3f background = Vec3f(0.2, 0.7, 0.8);
+const int MAX_TRACE_DEPTH = 3;
 
 void write_ppm(
     std::vector<Vec3f> &framebuffer, 
@@ -31,10 +32,10 @@ void write_ppm(
 
 struct Material {
     Vec3f diffuse_color;
-    Vec2f albedo; //diffuse_coff, spec_coff
+    Vec3f albedo; //diffuse_coff, spec_coff, reflect_coff
     float spec_expo;
     Material() : diffuse_color() {}
-    Material(const Vec2f &a, const Vec3f& color, float spec) : diffuse_color{color}, albedo{a}, spec_expo{spec} {}
+    Material(const Vec3f &a, const Vec3f& color, float spec) : diffuse_color{color}, albedo{a}, spec_expo{spec} {}
 };
 
 struct Light {
@@ -111,6 +112,10 @@ bool scene_intersect(
     return hit.isHit == 1;
 }
 
+Vec3f reflect(const Vec3f& l, const Vec3f& n) {
+    return n * 2.0f * (l * n) - l;
+}
+
 Vec3f ray_trace(
     const std::vector<Light>& lights,
     const std::vector<Sphere>& spheres,
@@ -118,6 +123,7 @@ Vec3f ray_trace(
     const Vec3f& dir,
     int depth = 1) {
 
+    if (depth > MAX_TRACE_DEPTH) return background;
     
     Hit hit(origin, dir);
     Sphere const * s = nullptr;
@@ -149,7 +155,8 @@ Vec3f ray_trace(
 
         Vec3f diffuse = s->material.diffuse_color * diffuse_intensity * s->material.albedo.x;
         Vec3f specular = Vec3f(1.f, 1.f, 1.f) * spec_intensity * s->material.albedo.y;
-        return diffuse + specular;
+        Vec3f reflection = ray_trace(lights, spheres, p, reflect((origin-p), n).normalize(), depth+1) * s->material.albedo.z;
+        return diffuse + specular + reflection;
     }
     return background;
     
@@ -171,13 +178,15 @@ void render() {
         Light(Vec3f( 30, 20,  30), 1.7)
     };
 
-    Material ivory({0.6,  0.3}, Vec3f(0.4, 0.4, 0.3), 50.0f);
-    Material red_rubber({0.9,  0.1}, Vec3f(0.3, 0.1, 0.1), 10.0f);
+    Material ivory({0.6,  0.3, 0.1}, Vec3f(0.4, 0.4, 0.3), 50.0f);
+    Material red_rubber({0.9,  0.1, 0.0}, Vec3f(0.3, 0.1, 0.1), 10.0f);
+    Material mirror(Vec3f(0.0, 10.0, 0.8), Vec3f(1.0, 1.0, 1.0), 1425.);
+
     std::vector<Sphere> spheres = {
         Sphere(Vec3f(-3,    0,   -16), 2,      ivory),
-        Sphere(Vec3f(-1.0, -1.5, -12), 2, red_rubber),
-        Sphere(Vec3f( 1.5, -0.5, -18), 3, red_rubber),
-        Sphere(Vec3f( 7,    5,   -18), 4,      ivory)
+        Sphere(Vec3f(-1.0, -1.5, -12), 2,      mirror),
+        Sphere(Vec3f( 1.5, -0.5, -18), 3,      red_rubber),
+        Sphere(Vec3f( 7,    5,   -18), 4,      mirror)
     };
 
     float tan_fov_2 = tanf(fov_2);

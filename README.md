@@ -4,7 +4,8 @@ My raytracer practice
 2024.3.14
 1) refactor a little bit and implement basic light;
 2) implement phong shading;
-3) add shadow
+3) add shadow;
+4) implement reflaction;
 
 2024.3.13
 1) Implement sphere class with ray intersect funciton;
