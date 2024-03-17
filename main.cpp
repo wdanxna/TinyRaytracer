@@ -4,10 +4,13 @@
 #include <fstream>
 #include <vector>
 #include "geometry.h"
-// #define STB_IMAGE_IMPLEMENTATION
-// #include "stb_image.h"
-// #define STB_IMAGE_WRITE_IMPLEMENTATION
-// #include "stb_image_write.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+int envmap_width, envmap_height;
+std::vector<Vec3f> envmap;
 
 const Vec3f background = Vec3f(0.2, 0.7, 0.8);
 const int MAX_TRACE_DEPTH = 3;
@@ -32,7 +35,7 @@ void write_ppm(
 
 struct Material {
     Vec3f diffuse_color;
-    Vec4f albedo; //diffuse_coff, spec_coff, reflect_coff
+    Vec4f albedo; //diffuse_coff, spec_coff, reflect_coff, refract_coff
     float spec_expo;
     float ridx;//refrection factor
     Material() : diffuse_color() {}
@@ -51,6 +54,7 @@ struct Hit {
     int isHit;
     int numberOfHits;
     float t0; //p + t0*dir = the first hit point
+    Material mat;
     Hit(const Vec3f& orig, const Vec3f& dir) : o{orig}, dir{dir}, isHit{0}, numberOfHits{0}, t0{0} {}
     Vec3f hitPoint() const {
         return o + dir.normalize() * t0;
@@ -111,6 +115,17 @@ bool scene_intersect(
             hit = h;
         }
     }
+
+    //define a plane at y = -4
+    float d = (-4 - o.y) / dir.y;
+    auto p = o + dir*d;
+    if (d > 0.0f && ((hit.isHit && d < nearest_factor) || !hit.isHit) && p.x >= -6 && p.x <=6 && p.z >= -28 && p.z <= -10) {
+        hit.isHit = 1;
+        hit.t0 = d;
+        hit.mat = Material({0.3f, 0.0f, 0.0f, 0.0f}, ((int(p.x*0.5 + 101) + int(p.z*0.5)) & 1) ? Vec3f{0.9, 0.9, 0.9} : Vec3f{0.7, 0.7, 0.7}, 1.0f);
+        *hitter = nullptr;
+    }
+
     return hit.isHit == 1;
 }
 
@@ -137,10 +152,10 @@ Vec3f ray_trace(
     Sphere const * s = nullptr;
     bool ishit = scene_intersect(origin, dir.normalize(), spheres, hit, &s);
     if (ishit) {
-        assert(s != nullptr);
         
         Vec3f p = hit.hitPoint();
-        Vec3f n = (p - s->center).normalize();
+        Vec3f n = (s != nullptr) ? (p - s->center).normalize() : Vec3f{0.0f, 1.0f, 0.0f};
+        Material m = (s != nullptr) ? s->material : hit.mat;
         float diffuse_intensity = 0.0f;
         float spec_intensity = 0.0f;
         for (auto& light : lights) {
@@ -151,33 +166,39 @@ Vec3f ray_trace(
             //shadow
             //shoot a ray from intersection poitn p to the light source
             //see if there is any thing between the point and the light source.
-            Hit h(p, (light.pos - p).normalize());
+            Hit h(p + l*0.0001, l);
             Sphere const * hitter = nullptr;
             if (scene_intersect(h.o, h.dir, spheres, h, &hitter)) {
                 continue;
             }
 
             diffuse_intensity += light.intensity * std::max(0.0f, n * l);
-            spec_intensity += light.intensity * powf(std::max(0.0f, v*r), s->material.spec_expo);
+            spec_intensity += light.intensity * powf(std::max(0.0f, v*r), m.spec_expo);
         }
 
-        Vec3f diffuse = s->material.diffuse_color * diffuse_intensity * s->material.albedo.x;
-        Vec3f specular = Vec3f(1.f, 1.f, 1.f) * spec_intensity * s->material.albedo.y;
-        Vec3f reflection = ray_trace(lights, spheres, p, reflect((origin-p), n).normalize(), depth+1) * s->material.albedo.z;
+        Vec3f diffuse =m.diffuse_color * diffuse_intensity * m.albedo.x;
+        Vec3f specular = Vec3f(1.f, 1.f, 1.f) * spec_intensity * m.albedo.y;
+        Vec3f reflection = ray_trace(lights, spheres, p, reflect((origin-p), n).normalize(), depth+1) * m.albedo.z;
         //refraction
         Vec3f refrection = {0.0f, 0.0f, 0.0f};
-        if (s->material.albedo[3] > 0.f) {
-            auto r1 = refrect(dir.normalize(), n, 1.0f, s->material.ridx); //the refrected ray direction inside the sphere
-            Hit p1hit(p+r1*0.001, r1);
-            s->ray_intersect(p+r1*0.01, r1, p1hit);//the internal hit point
+        if (m.albedo[3] > 0.f) {
+            auto r1 = refrect(dir.normalize(), n, 1.0f, m.ridx); //the refrected ray direction inside the sphere
+            Hit p1hit(p+r1*0.0001, r1);
+            s->ray_intersect(p+r1*0.0001, r1, p1hit);//the internal hit point
             auto p1 = p1hit.hitPoint();
-            auto r2 = refrect((p1-p).normalize(), (s->center-p1).normalize(), s->material.ridx, 1.0f);
-            refrection = ray_trace(lights, spheres, p1+r2*0.001f, r2, depth+1) * s->material.albedo[3];
+            auto r2 = refrect((p1-p).normalize(), (s->center-p1).normalize(), m.ridx, 1.0f);
+            refrection = ray_trace(lights, spheres, p1, r2, depth+1) * m.albedo[3];
         }
 
         return diffuse + specular + reflection + refrection;
     }
-    return background;
+
+    auto ndir = dir.normalize();
+    float theta = std::atan2(ndir.z, ndir.x);
+    float phi = std::acos(ndir.y);
+    float u = (theta + M_PI) / (2.0f * M_PI);
+    float v = phi / M_PI;
+    return envmap[int(u*envmap_width)+int(v*envmap_height)*(envmap_width)];
     
 }
 
@@ -190,6 +211,20 @@ void render() {
     float aspect = float(height) / float(width);
     float fov = M_PI_2;
     float fov_2 = M_PI_4;
+
+    int n;
+    unsigned char *pixmap = stbi_load("./envmap.jpg", &envmap_width, &envmap_height, &n, 0);
+    if (!pixmap || 3!=n) {
+        std::cerr << "Error: can not load the environment map" << std::endl;
+        return;
+    }
+    envmap = std::vector<Vec3f>(envmap_width*envmap_height);
+    for (int j = envmap_height-1; j>=0 ; j--) {
+        for (int i = 0; i<envmap_width; i++) {
+            envmap[i+j*envmap_width] = Vec3f(pixmap[(i+j*envmap_width)*3+0], pixmap[(i+j*envmap_width)*3+1], pixmap[(i+j*envmap_width)*3+2])*(1/255.);
+        }
+    }
+    stbi_image_free(pixmap);
     //scene
     std::vector<Light> lights = {
         Light(Vec3f(-20, 20,  20), 1.5),

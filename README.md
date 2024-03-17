@@ -1,7 +1,9 @@
 # TinyRaytracer
 My raytracer practice
 ---
-2024.4.15
+2024.4.17
+1) add checkerboard plane
+2) add environment map
 
 2024.3.14
 1) refactor a little bit and implement basic light;
