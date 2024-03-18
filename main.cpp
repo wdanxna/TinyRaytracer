@@ -17,7 +17,7 @@ std::vector<Vec3f> envmap;
 Model *mesh = nullptr;
 
 const Vec3f background = Vec3f(0.2, 0.7, 0.8);
-const int MAX_TRACE_DEPTH = 3;
+const int MAX_TRACE_DEPTH = 4;
 
 void write_ppm(
     std::vector<Vec3f> &framebuffer, 

@@ -1,5 +1,6 @@
 # TinyRaytracer
-My raytracer practice
+My raytracer practice while I was following the course [TinyRaytracer](https://github.com/ssloy/tinyraytracer)
+
 ![result](out.png)
 
 technical difficulties:
