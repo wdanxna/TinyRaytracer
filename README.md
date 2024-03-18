@@ -1,6 +1,10 @@
 # TinyRaytracer
 My raytracer practice
 ---
+2024.4.18
+1) render obj file
+2) refactor the refraction calculation
+
 2024.4.17
 1) add checkerboard plane
 2) add environment map
