@@ -1,5 +1,15 @@
 # TinyRaytracer
 My raytracer practice
+![result](out.png)
+
+technical difficulties:
+* screen space to view space transformation
+* sphere ray intersection
+* triangle ray intersection 
+* ray_trace function recursive construct
+* refrection calculation(especital when ray is inside the shape)
+* environment map coordinates translation
+* axis-align plane rendering and checkerboard pattern generation
 ---
 2024.4.18
 1) render obj file
@@ -22,4 +32,4 @@ My raytracer practice
 4) And flip the final image vertically.
 
 2024.3.12
-setting up the project. the ppm viewer extension in vscode is very handy 
+1) setting up the project. the ppm viewer extension in vscode is very handy 
